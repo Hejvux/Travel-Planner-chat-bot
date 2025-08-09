@@ -34,6 +34,8 @@ def save_conversation_history(messages: List[Dict]):
 
 def get_travel_requirements(user_input: str) -> Dict:
     """Extract travel requirements using function calling"""
+    # Store original input for language detection
+    original_input = user_input
     functions = [
         {
             "name": "extract_travel_info",
@@ -90,26 +92,56 @@ def get_travel_requirements(user_input: str) -> Dict:
     # Extract the function call result
     if response.get("choices") and response["choices"][0].get("message", {}).get("function_call"):
         function_call = response["choices"][0]["message"]["function_call"]
-        return json.loads(function_call["arguments"])
-    return {}
+        result = json.loads(function_call["arguments"])
+        # Add original input for language detection
+        result['original_input'] = original_input
+        return result
+    return {'original_input': original_input}
+
+def detect_language(text: str) -> str:
+    """Detect if the input is Vietnamese or English"""
+    # Simple detection based on Vietnamese-specific characters
+    vietnamese_chars = set('àáảãạăắằẳẵặâấầẩẫậèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵđ')
+    text_chars = set(text.lower())
+    return 'vi' if vietnamese_chars & text_chars else 'en'
 
 def generate_travel_plan(requirements: Dict) -> str:
     """Generate a detailed travel plan based on requirements"""
-    # Create a context-aware prompt
-    prompt = f"""As a travel planning assistant, create a detailed plan based on these requirements:
-    Time: {requirements.get('time', 'Not specified')}
-    Location: {requirements.get('location', 'Not specified')}
-    Duration: {requirements.get('duration', 'Not specified')}
-    Budget: {requirements.get('budget', 'Not specified')}
-    Preferences: {', '.join(requirements.get('preferences', ['Not specified']))}
+    # Detect language from the original input
+    user_input = requirements.get('original_input', '')
+    lang = detect_language(user_input)
+    
+    # Create a context-aware prompt in the detected language
+    if lang == 'vi':
+        prompt = f"""Là một trợ lý lập kế hoạch du lịch, tạo một kế hoạch chi tiết dựa trên các yêu cầu sau:
+        Thời gian: {requirements.get('time', 'Chưa xác định')}
+        Địa điểm: {requirements.get('location', 'Chưa xác định')}
+        Thời lượng: {requirements.get('duration', 'Chưa xác định')}
+        Ngân sách: {requirements.get('budget', 'Chưa xác định')}
+        Sở thích: {', '.join(requirements.get('preferences', ['Chưa xác định']))}"""
+    else:
+        prompt = f"""As a travel planning assistant, create a detailed plan based on these requirements:
+        Time: {requirements.get('time', 'Not specified')}
+        Location: {requirements.get('location', 'Not specified')}
+        Duration: {requirements.get('duration', 'Not specified')}
+        Budget: {requirements.get('budget', 'Not specified')}
+        Preferences: {', '.join(requirements.get('preferences', ['Not specified']))}
 
+    """ + ("""
+    Vui lòng cung cấp lịch trình chi tiết theo từng ngày bao gồm:
+    1. Đề xuất chỗ ở
+    2. Hoạt động và địa điểm tham quan
+    3. Phương tiện di chuyển
+    4. Chi phí dự kiến
+    5. Mẹo và khuyến nghị địa phương
+    """ if lang == 'vi' else """
     Please provide a detailed day-by-day itinerary including:
     1. Accommodation recommendations
     2. Activities and attractions
     3. Transportation options
     4. Estimated costs
     5. Local tips and recommendations
-    """
+    """)
 
     # Get conversation history for context
     history = load_conversation_history()
@@ -145,8 +177,11 @@ for message in load_conversation_history():
     with st.chat_message(message["role"]):
         st.write(message["content"])
 
-# User input
-user_input = st.chat_input("Tell me about your travel plans...")
+# User input with dynamic placeholder based on previous language
+last_message = st.session_state.messages[-1] if st.session_state.messages else None
+last_lang = detect_language(last_message["content"]) if last_message else "en"
+placeholder = "Hãy chia sẻ kế hoạch du lịch của bạn..." if last_lang == "vi" else "Tell me about your travel plans..."
+user_input = st.chat_input(placeholder)
 
 if user_input:
     # Display user message
